@@ -186,6 +186,9 @@ public:
 
     float GetImageScale();
 
+    FrameDrawer* GetFrameDrawer() { return mpFrameDrawer; }
+    MapDrawer* GetMapDrawer() { return mpMapDrawer; }
+
 #ifdef REGISTER_TIMES
     void InsertRectTime(double& time);
     void InsertResizeTime(double& time);
