@@ -190,6 +190,7 @@ public:
     MapDrawer* GetMapDrawer() { return mpMapDrawer; }
     Atlas* GetAtlas() { return mpAtlas;}
     Tracking* GetTracker() { return mpTracker;}
+    Settings* GetSetting() { return settings_;}
 
 #ifdef REGISTER_TIMES
     void InsertRectTime(double& time);
