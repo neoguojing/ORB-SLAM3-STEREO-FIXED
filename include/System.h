@@ -188,6 +188,9 @@ public:
 
     FrameDrawer* GetFrameDrawer() { return mpFrameDrawer; }
     MapDrawer* GetMapDrawer() { return mpMapDrawer; }
+    Atlas* GetAtlas() { return mpAtlas;}
+    Tracking* GetTracker() { return mpTracker;}
+
 
 #ifdef REGISTER_TIMES
     void InsertRectTime(double& time);
