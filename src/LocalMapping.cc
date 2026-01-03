@@ -30,6 +30,10 @@
 namespace ORB_SLAM3
 {
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, bool bInertial, const string &_strSeqName):
     mpSystem(pSys), mbMonocular(bMonocular), mbInertial(bInertial), mbResetRequested(false), mbResetRequestedActiveMap(false), mbFinishRequested(false), mbFinished(true), mpAtlas(pAtlas), bInitializing(false),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true),
@@ -1246,9 +1250,24 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         Eigen::Vector3f v = gI.cross(dirG);
         const float nv = v.norm();
         const float cosg = gI.dot(dirG);
-        const float ang = acos(cosg);
-        Eigen::Vector3f vzg = v*ang/nv;
-        Rwg = Sophus::SO3f::exp(vzg).matrix();
+        // const float ang = acos(cosg);
+        const float ang = acos(std::max(-1.0f, std::min(1.0f, cosg)));
+        // 核心修复 2: 处理 v 为零向量的情况（即 gI 和 dirG 平行）
+        if (nv < 1e-6f)
+        {
+            // 如果两个向量方向相同，旋转矩阵为单位阵；如果相反，则旋转 180 度
+            if (cosg > 0) {
+                Rwg = Eigen::Matrix3f::Identity();
+            } else {
+                // 绕任意垂直轴旋转 180 度
+                Eigen::Vector3f axis = (std::abs(gI.x()) < 0.9f) ? 
+                                        Eigen::Vector3f(1,0,0) : Eigen::Vector3f(0,1,0);
+                Rwg = Sophus::SO3f::exp(axis * M_PI).matrix();
+            }
+        } else {
+            Eigen::Vector3f vzg = v*ang/nv;
+            Rwg = Sophus::SO3f::exp(vzg).matrix();
+        }
         mRwg = Rwg.cast<double>();
         mTinit = mpCurrentKeyFrame->mTimeStamp-mFirstTs;
     }
