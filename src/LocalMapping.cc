@@ -1245,7 +1245,15 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
             (*itKF)->mPrevKF->SetVelocity(_vel);
         }
 
-        dirG = dirG/dirG.norm();
+        float nDirG = dirG.norm();
+        if (nDirG < 1e-6f) // 安全检查：防止 dirG 为零向量
+        {
+            mRwg = Eigen::Matrix3d::Identity();
+            // 可以记录一个错误日志或者跳过初始化
+            bInitializing = false;
+            return;
+        }
+        dirG = dirG/nDirG;
         Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);
         Eigen::Vector3f v = gI.cross(dirG);
         const float nv = v.norm();
