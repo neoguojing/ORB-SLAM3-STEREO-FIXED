@@ -1232,6 +1232,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         Eigen::Matrix3f Rwg;
         Eigen::Vector3f dirG;
         dirG.setZero();
+        int valid_cnt = 0;
         for(vector<KeyFrame*>::iterator itKF = vpKF.begin(); itKF!=vpKF.end(); itKF++)
         {
             if (!(*itKF)->mpImuPreintegrated)
@@ -1240,20 +1241,36 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
                 continue;
 
             dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
-            Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
-            (*itKF)->SetVelocity(_vel);
-            (*itKF)->mPrevKF->SetVelocity(_vel);
+            
+            float dt = (*itKF)->mpImuPreintegrated->dT;
+            if (dt > 1e-4f) {
+                Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition()) / dt;
+                if (_vel.allFinite()) {
+                    (*itKF)->SetVelocity(_vel);
+                    (*itKF)->mPrevKF->SetVelocity(_vel);
+                }
+            }
+            // Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
+            // (*itKF)->SetVelocity(_vel);
+            // (*itKF)->mPrevKF->SetVelocity(_vel);
+            valid_cnt++;
         }
 
-        float nDirG = dirG.norm();
-        if (nDirG < 1e-6f) // 安全检查：防止 dirG 为零向量
+        if (valid_cnt < 3)
         {
-            mRwg = Eigen::Matrix3d::Identity();
-            // 可以记录一个错误日志或者跳过初始化
+            std::cerr << "[IMU INIT] Not enough IMU excitation" << std::endl;
             bInitializing = false;
             return;
         }
-        dirG = dirG/nDirG;
+
+        float dirG_norm = dirG.norm();
+        if (!std::isfinite(dirG_norm) || dirG_norm < 1e-6)
+        {
+            std::cerr << "[IMU INIT] Invalid gravity direction, skip IMU init" << std::endl;
+            bInitializing = false;
+            return;
+        }
+        dirG /= dirG_norm;
         Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);
         Eigen::Vector3f v = gI.cross(dirG);
         const float nv = v.norm();
@@ -1273,7 +1290,13 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
                 Rwg = Sophus::SO3f::exp(axis * M_PI).matrix();
             }
         } else {
-            Eigen::Vector3f vzg = v*ang/nv;
+            Eigen::Vector3f vzg = v * ang / nv;
+            if (!vzg.allFinite())
+            {
+                std::cerr << "[IMU INIT] vzg NaN, abort IMU init" << std::endl;
+                bInitializing = false;
+                return;
+            }
             Rwg = Sophus::SO3f::exp(vzg).matrix();
         }
         mRwg = Rwg.cast<double>();
@@ -1306,7 +1329,12 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     {
         unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
         if ((fabs(mScale - 1.f) > 0.00001) || !mbMonocular) {
-            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
+            // Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
+            Eigen::Matrix3f Rwg_f = mRwg.cast<float>();
+            // 重点：使用四元数归一化解决精度引起的非正交问题
+            Eigen::Quaternionf qwg(Rwg_f.transpose()); 
+            qwg.normalize();
+            Sophus::SE3f Twg(qwg, Eigen::Vector3f::Zero());
             mpAtlas->GetCurrentMap()->ApplyScaledRotation(Twg, mScale, true);
             mpTracker->UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);
         }
